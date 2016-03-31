@@ -50,7 +50,7 @@ def load_training_data(training_file='mnistdata.mat'):
     return (training_data['X'], training_data['y'])
 
 
-def load_weights(weight_file='ex4weights.mat'):
+def load_weights(weight_file='mnistweights.mat'):
     weights = sio.loadmat(weight_file)
     #print(weights.keys())
     return weights
