@@ -43,6 +43,9 @@ Output_layer_size = 10
 def load_training_data(training_file='mnistdata.mat'):
     '''Load training data (mnistdata.mat) and return (inputs, labels).
 
+    inputs: numpy array with size (5000, 400).
+    labels: numpy array with size (5000, 1).
+
     The training data is from Andrew Ng's exercise of the Coursera
     machine learning course (ex4data1.mat).
     '''
@@ -51,6 +54,11 @@ def load_training_data(training_file='mnistdata.mat'):
 
 
 def load_weights(weight_file='mnistweights.mat'):
+    '''Load training data (mnistdata.mat) and return (inputs, labels).
+
+    The weights file is from Andrew Ng's exercise of the Coursera
+    machine learning course (ex4weights.mat).
+    '''
     weights = sio.loadmat(weight_file)
     #print(weights.keys())
     return weights
@@ -70,20 +78,26 @@ def sigmoid_gradient(z):
 
 
 def cost_function(theta1, theta2, input_layer_size, hidden_layer_size, output_layer_size, inputs, labels, regular=0):
-    # transfer tensors to numpy arrays
-    inputs = np.array(inputs)  # 5000x400
-    theta1 = np.array(theta1)  # 25x401
-    theta2 = np.array(theta2)  # 10x26
+    '''
+    Note: theta1, theta2, inputs, labels are numpy arrays:
 
+        theta1: (25, 401)
+        theta2: (10, 26)
+        inputs: (5000, 400)
+        labels: (5000, 1)
+    '''
     # construct neural network
     input_layer = np.insert(inputs, 0, 1, axis=1)  # add bias, 5000x401
 
     hidden_layer = np.dot(input_layer, np.transpose(theta1))
-    hidden_layer = pd.DataFrame(hidden_layer).apply(sigmoid).as_matrix()
+    hidden_layer = sigmoid(hidden_layer)
     hidden_layer = np.insert(hidden_layer, 0, 1, axis=1)  # add bias, 5000x26
 
     output_layer = np.dot(hidden_layer, np.transpose(theta2))  # 5000x10
-    output_layer = pd.DataFrame(output_layer).apply(sigmoid).as_matrix()
+    output_layer = sigmoid(output_layer)
+    #print('input  layer shape: {}'.format(input_layer.shape))
+    #print('hidden layer shape: {}'.format(hidden_layer.shape))
+    #print('output layer shape: {}'.format(output_layer.shape))
 
     # forward propagation: calculate cost
     cost = 0.0
@@ -104,34 +118,30 @@ def cost_function(theta1, theta2, input_layer_size, hidden_layer_size, output_la
     cost /= len(inputs)
 
     # back propagatino: calculate gradiants
-    theta1_grad = np.zeros(theta1.shape)  # 25x401
-    theta2_grad = np.zeros(theta2.shape)  # 10x26
-    for training_index in xrange(len(inputs)):
+    theta1_grad = np.zeros_like(theta1)  # 25x401
+    theta2_grad = np.zeros_like(theta2)  # 10x26
+    for index in xrange(len(inputs)):
         # transform label y[i] from a number to a vector.
-        outputs = [0] * output_layer_size
-        outputs[labels[training_index]-1] = 1
+        outputs = np.zeros((1, output_layer_size))  # (1,10)
+        outputs[0][labels[index]-1] = 1
 
         # calculate delta3
-        delta3 = output_layer[training_index] - outputs  # 10x1
+        delta3 = (output_layer[index] - outputs).T  # (10,1)
 
         # calculate delta2
-        z2 = np.dot(theta1, input_layer[training_index])
-        z2 = np.insert(z2, 0, 1)  # add bias, 26x1
+        z2 = np.dot(theta1, input_layer[index:index+1].T)  # (25,401) x (401,1)
+        z2 = np.insert(z2, 0, 1, axis=0)  # add bias, (26,1)
         delta2 = np.multiply(
-            np.dot(np.transpose(theta2), delta3),
-            list(map(sigmoid_gradient, z2))
+            np.dot(theta2.T, delta3),  # (26,10) x (10,1)
+            sigmoid_gradient(z2)       # (26,1)
         )
-        delta2 = delta2[1:]  # 25x1
+        delta2 = delta2[1:]  # (25,1)
 
         # calculate gradients of theta1 and theta2
-        theta1_grad += np.dot(
-            np.asmatrix(delta2).transpose(),
-            np.asmatrix(input_layer[training_index])
-        )  # 25x401
-        theta2_grad += np.dot(
-            np.asmatrix(delta3).transpose(),
-            np.asmatrix(hidden_layer[training_index])
-        )  # 10x26
+        # (25,401) = (25,1) x (1,401)
+        theta1_grad += np.dot(delta2, input_layer[index:index+1])
+        # (10,26) = (10,1) x (1,26)
+        theta2_grad += np.dot(delta3, hidden_layer[index:index+1])
     theta1_grad /= len(inputs)
     theta2_grad /= len(inputs)
 
@@ -164,15 +174,12 @@ def train(inputs, labels, learningrate=0.8, iteration=50):
 
 def predict(model, inputs):
     theta1, theta2 = model
-    inputs = np.array(inputs)  # 5000x400
-    theta1 = np.array(theta1)  # 25x401
-    theta2 = np.array(theta2)  # 10x26
-    a1 = np.insert(inputs, 0, 1, axis=1) # add bias, 5000x401
-    a2 = np.dot(a1, theta1.transpose())
-    a2 = pd.DataFrame(a2).apply(sigmoid).as_matrix()
-    a2 = np.insert(a2, 0, 1, axis=1)     # add bias, 5000x26
-    a3 = np.dot(a2, theta2.transpose())
-    a3 = pd.DataFrame(a3).apply(sigmoid).as_matrix()  # 5000x10
+    a1 = np.insert(inputs, 0, 1, axis=1)  # add bias, (5000,401)
+    a2 = np.dot(a1, theta1.T)  # (5000,401) x (401,25)
+    a2 = sigmoid(a2)
+    a2 = np.insert(a2, 0, 1, axis=1)  # add bias, (5000,26)
+    a3 = np.dot(a2, theta2.T)  # (5000,26) x (26,10)
+    a3 = sigmoid(a3)  # (5000,10)
     return [i.argmax()+1 for i in a3]
 
 
