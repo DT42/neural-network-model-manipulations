@@ -1,6 +1,6 @@
 #!/usr/bin/python
 #
-# MNIST digit recognizer
+# MNIST digit recognizer in GPU mode
 #
 # The simple recognizer is implememted purely in Python.  The purpose of
 # this program is to present the details how to constructa simple neural
@@ -34,12 +34,16 @@ import pandas as pd
 import scipy.io as sio
 import theano
 import theano.tensor as T
+import time
 
 
 # Structure of the 3-layer neural network.
 Input_layer_size = 400
 Hidden_layer_size = 25
 Output_layer_size = 10
+
+# Matrix product function.  Default is to use CPU mode.
+Matrix_dot = np.dot
 
 
 def load_training_data(training_file='mnistdata.mat'):
@@ -62,7 +66,6 @@ def load_weights(weight_file='mnistweights.mat'):
     machine learning course (ex4weights.mat).
     '''
     weights = sio.loadmat(weight_file)
-    #print(weights.keys())
     return weights
 
 
@@ -79,6 +82,17 @@ def sigmoid_gradient(z):
     return sigmoid(z) * (1 - sigmoid(z))
 
 
+def gpu_matrix_dot():
+    time_start = time.time()
+    x = T.matrix('x')
+    y = T.matrix('y')
+    z = T.dot(x, y)
+    f = theano.function([x, y], z, allow_input_downcast=True)
+    time_end = time.time()
+    print('theano expression creation costs {} secs'.format(time_end - time_start))
+    return f
+
+
 def cost_function(theta1, theta2, input_layer_size, hidden_layer_size, output_layer_size, inputs, labels, regular=0):
     '''
     Note: theta1, theta2, inputs, labels are numpy arrays:
@@ -88,58 +102,24 @@ def cost_function(theta1, theta2, input_layer_size, hidden_layer_size, output_la
         inputs: (5000, 400)
         labels: (5000, 1)
     '''
-    def gpu_matrix_dot():
-        import time
-        time_start = time.time()
-        x = T.matrix('x')
-        time_end = time.time()
-        print('theano matrix x costs {} secs'.format(time_end - time_start))
-        time_start = time.time()
-        y = T.matrix('y')
-        time_end = time.time()
-        print('theano matrix y costs {} secs'.format(time_end - time_start))
-        z = T.dot(x, y)
-        #z = theano.sandbox.cuda.basic_ops.gpu_from_host(T.dot(x, y))
-        time_start = time.time()
-        f = theano.function([x, y], z, allow_input_downcast=True)
-        time_end = time.time()
-        print('theano expression creation costs {} secs'.format(time_end - time_start))
-
-        def dot(a, b):
-            f([a, b], z)
-        return dot
-
-    # gpu: 0.015, cpu: 7e-5, 200 times slower!
-    gpu_mode = False
-    if gpu_mode is True:
-        matrix_dot = gpu_matrix_dot()
-    else:
-        matrix_dot = np.dot
-
     # construct neural network
     input_layer = np.insert(inputs, 0, 1, axis=1)  # add bias, 5000x401
 
-    #hidden_layer = np.dot(input_layer, np.transpose(theta1))
-    #print('input layer shape: {0}, dtype: {1}, flags: {2}'.format(input_layer.shape, input_layer.dtype, input_layer.flags))
-    #print('theta1^T shape: {0}, dtype: {1}, flags: {2}'.format(theta1.T.shape, theta1.T.dtype, theta1.T.flags))
-    import time
     time_start = time.time()
-    hidden_layer = matrix_dot(input_layer, theta1.T)
-    time_end = time.time()
-    print('hidden layer dot costs {} secs'.format(time_end - time_start))
+    hidden_layer = Matrix_dot(input_layer, theta1.T)
     hidden_layer = sigmoid(hidden_layer)
     hidden_layer = np.insert(hidden_layer, 0, 1, axis=1)  # add bias, 5000x26
+    time_end = time.time()
+    print('\tconstruction: hidden layer dot costs {} secs'.format(time_end - time_start))
 
     time_start = time.time()
-    output_layer = matrix_dot(hidden_layer, theta2.T)  # 5000x10
-    time_end = time.time()
-    print('output layer dot costs {} secs'.format(time_end - time_start))
+    output_layer = Matrix_dot(hidden_layer, theta2.T)  # 5000x10
     output_layer = sigmoid(output_layer)
-    #print('input  layer shape: {}'.format(input_layer.shape))
-    #print('hidden layer shape: {}'.format(hidden_layer.shape))
-    #print('output layer shape: {}'.format(output_layer.shape))
+    time_end = time.time()
+    print('\tconstruction: output layer dot costs {} secs'.format(time_end - time_start))
 
     # forward propagation: calculate cost
+    time_start = time.time()
     cost = 0.0
     for training_index in xrange(len(inputs)):
         # transform label y[i] from a number to a vector.
@@ -156,8 +136,11 @@ def cost_function(theta1, theta2, input_layer_size, hidden_layer_size, output_la
         for k in xrange(output_layer_size):
             cost += -outputs[k] * math.log(output_layer[training_index][k]) - (1 - outputs[k]) * math.log(1 - output_layer[training_index][k])
     cost /= len(inputs)
+    time_end = time.time()
+    print('\tforward prop: costs {} secs'.format(time_end - time_start))
 
     # back propagatino: calculate gradiants
+    time_start = time.time()
     theta1_grad = np.zeros_like(theta1)  # 25x401
     theta2_grad = np.zeros_like(theta2)  # 10x26
     for index in xrange(len(inputs)):
@@ -169,28 +152,23 @@ def cost_function(theta1, theta2, input_layer_size, hidden_layer_size, output_la
         delta3 = (output_layer[index] - outputs).T  # (10,1)
 
         # calculate delta2
-        #z2 = np.dot(theta1, input_layer[index:index+1].T)  # (25,401) x (401,1)
-        z2 = matrix_dot(theta1, input_layer[index:index+1].T)  # (25,401) x (401,1)
+        z2 = Matrix_dot(theta1, input_layer[index:index+1].T)  # (25,401) x (401,1)
         z2 = np.insert(z2, 0, 1, axis=0)  # add bias, (26,1)
         delta2 = np.multiply(
-            #np.dot(theta2.T, delta3),  # (26,10) x (10,1)
-            matrix_dot(theta2.T, delta3),  # (26,10) x (10,1)
-            sigmoid_gradient(z2)       # (26,1)
+            Matrix_dot(theta2.T, delta3),  # (26,10) x (10,1)
+            sigmoid_gradient(z2)  # (26,1)
         )
         delta2 = delta2[1:]  # (25,1)
 
         # calculate gradients of theta1 and theta2
         # (25,401) = (25,1) x (1,401)
-        #theta1_grad += np.dot(delta2, input_layer[index:index+1])
-        time_start = time.time()
-        theta1_grad += matrix_dot(delta2, input_layer[index:index+1])
+        theta1_grad += Matrix_dot(delta2, input_layer[index:index+1])
         # (10,26) = (10,1) x (1,26)
-        #theta2_grad += np.dot(delta3, hidden_layer[index:index+1])
-        theta2_grad += matrix_dot(delta3, hidden_layer[index:index+1])
-        time_end = time.time()
-        print('input #{0} back-propagation costs {1} secs'.format(index, time_end - time_start))
+        theta2_grad += Matrix_dot(delta3, hidden_layer[index:index+1])
     theta1_grad /= len(inputs)
     theta2_grad /= len(inputs)
+    time_end = time.time()
+    print('\tback prop: costs {} secs'.format(time_end - time_start))
 
     return cost, (theta1_grad, theta2_grad)
 
@@ -205,12 +183,14 @@ def gradient_descent(inputs, labels, learningrate=0.8, iteration=50):
     theta2 = rand_theta2
     cost = 0.0
     for i in xrange(iteration):
+        time_start = time.time()
         cost, (theta1_grad, theta2_grad) = cost_function(theta1, theta2,
             Input_layer_size, Hidden_layer_size, Output_layer_size,
             inputs, labels, regular=0)
         theta1 -= learningrate * theta1_grad
         theta2 -= learningrate * theta2_grad
-        print('Iteration {0} (learning rate {2}, iteration {3}), cost: {1}'.format(i+1, cost, learningrate, iteration))
+        time_end = time.time()
+        print('Iteration {0} (learning rate {2}, iteration {3}), cost: {1}, time: {4}'.format(i+1, cost, learningrate, iteration, time_end - time_start))
     return cost, (theta1, theta2)
 
 
@@ -231,6 +211,15 @@ def predict(model, inputs):
 
 
 if __name__ == '__main__':
+    gpu_mode = True
+    #gpu_mode = False
+    if gpu_mode is True:
+        print('GPU mode')
+        Matrix_dot = gpu_matrix_dot()
+    else:
+        print('CPU mode')
+        Matrix_dot = np.dot
+
     # Note: There are 10 units which present the digits [1-9, 0]
     # (in order) in the output layer.
     inputs, labels = load_training_data()
@@ -248,10 +237,10 @@ if __name__ == '__main__':
     # workaround to avoid memory alignment error in Scipy
     theta1 = np.array(theta1)
     theta2 = np.array(theta2)
-    print('theta1: {}'.format(theta1))
-    print('theta1 flags: {}'.format(theta1.flags))
-    print('theta2: {}'.format(theta2))
-    print('theta2 flags: {}'.format(theta2.flags))
+    #print('theta1: {}'.format(theta1))
+    #print('theta1 flags: {}'.format(theta1.flags))
+    #print('theta2: {}'.format(theta2))
+    #print('theta2 flags: {}'.format(theta2.flags))
  
     cost, (theta1_grad, theta2_grad) = cost_function(theta1, theta2, Input_layer_size, Hidden_layer_size, Output_layer_size, inputs, labels, regular=0)
     print('cost:', cost)
