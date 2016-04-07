@@ -117,7 +117,7 @@ def cost_function(theta1, theta2, input_layer_size, hidden_layer_size, output_la
             cost += -outputs[k] * math.log(output_layer[training_index][k]) - (1 - outputs[k]) * math.log(1 - output_layer[training_index][k])
     cost /= len(inputs)
 
-    # back propagatino: calculate gradiants
+    # back propagation: calculate gradiants
     theta1_grad = np.zeros_like(theta1)  # 25x401
     theta2_grad = np.zeros_like(theta2)  # 10x26
     for index in xrange(len(inputs)):

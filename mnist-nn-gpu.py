@@ -139,7 +139,7 @@ def cost_function(theta1, theta2, input_layer_size, hidden_layer_size, output_la
     time_end = time.time()
     print('\tforward prop: costs {} secs'.format(time_end - time_start))
 
-    # back propagatino: calculate gradiants
+    # back propagation: calculate gradiants
     time_start = time.time()
     theta1_grad = np.zeros_like(theta1)  # 25x401
     theta2_grad = np.zeros_like(theta2)  # 10x26
