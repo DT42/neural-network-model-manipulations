@@ -42,6 +42,8 @@ if os.getenv('MNISTNN_GPU_MODE') == 'yes':
 else:
     Gpu_mode = False
 
+Gpu_mode = True
+
 if Gpu_mode is True:
     import theano
     import theano.tensor as T
@@ -224,7 +226,8 @@ def cost_function(theta1, theta2, input_layer_size, hidden_layer_size, output_la
     #    comm.Barrier()
     #else:
     #    print('\thidden_layer sum: {}'.format(hidden_layer.sum()))
-    #print('\tconstruction: hidden layer dot costs {} secs'.format(time_end - time_start))
+    if comm.rank == 0:
+        print('\tconstruction: hidden layer dot costs {} secs'.format(time_end - time_start))
 
     time_start = time.time()
     output_layer = Matrix_dot(hidden_layer, theta2.T)  # 5000x10
@@ -235,7 +238,8 @@ def cost_function(theta1, theta2, input_layer_size, hidden_layer_size, output_la
     #    comm.Barrier()
     #else:
     #    print('\toutput_layer sum: {}'.format(output_layer.sum()))
-    #print('\tconstruction: output layer dot costs {} secs'.format(time_end - time_start))
+    if comm.rank == 0:
+        print('\tconstruction: output layer dot costs {} secs'.format(time_end - time_start))
 
     # forward propagation: calculate cost
     #if Distributed is False or comm.rank == 0:
@@ -277,8 +281,8 @@ def cost_function(theta1, theta2, input_layer_size, hidden_layer_size, output_la
         #        print('\t\tcurrent cost: {0}\n\t\tlabel[{1}]: {2}\n\t\toutputs: {3}'.format(cost, training_index, labels[training_index], outputs))
     cost /= len(inputs)
     time_end = time.time()
-    #if Distributed is False or comm.rank == 0:
-    #    print('\tforward prop: costs {} secs'.format(time_end - time_start))
+    if comm.rank == 0:
+        print('\tforward prop: costs {} secs'.format(time_end - time_start))
 
     # back propagation: calculate gradiants
     #if Distributed is False or comm.rank == 0:
@@ -314,8 +318,8 @@ def cost_function(theta1, theta2, input_layer_size, hidden_layer_size, output_la
     theta1_grad /= len(inputs)
     theta2_grad /= len(inputs)
     time_end = time.time()
-    #if Distributed is False or comm.rank == 0:
-    #    print('\tback prop: costs {} secs'.format(time_end - time_start))
+    if comm.rank == 0:
+        print('\tback prop: costs {} secs'.format(time_end - time_start))
 
     #print('-'*80)
     #if Distributed is True:
@@ -331,21 +335,26 @@ def gradient_descent(inputs, labels, learningrate=0.8, iteration=50):
     '''
     if Distributed is True:
         if comm.rank == 0:
-            #rand_theta1 = rand_init_weights(Input_layer_size, Hidden_layer_size)
-            #rand_theta2 = rand_init_weights(Hidden_layer_size, Output_layer_size)
-            #theta1 = rand_theta1
-            #theta2 = rand_theta2
+            rand_theta1 = rand_init_weights(Input_layer_size, Hidden_layer_size)
+            rand_theta2 = rand_init_weights(Hidden_layer_size, Output_layer_size)
+            theta1 = rand_theta1
+            theta2 = rand_theta2
 
             # DEBUG: Load fixed weights instead of random weights to get the
             # same results everytime.
-            theta1, theta2 = load_weights()
+            #theta1, theta2 = load_weights()
         else:
             theta1 = np.zeros((Hidden_layer_size, Input_layer_size + 1))
             theta2 = np.zeros((Output_layer_size, Hidden_layer_size + 1))
         comm.Barrier()
+        if comm.rank == 0:
+            time_bcast_start = time.time()
         comm.Bcast([theta1, MPI.DOUBLE])
         comm.Barrier()
         comm.Bcast([theta2, MPI.DOUBLE])
+        if comm.rank == 0:
+            time_bcast_end = time.time()
+            print('\tBcast theta1 and theta2 uses {} secs.'.format(time_bcast_end - time_bcast_start))
     else:
         theta1, theta2 = load_weights()
     #if Distributed is True and comm.rank == 0:
@@ -354,7 +363,7 @@ def gradient_descent(inputs, labels, learningrate=0.8, iteration=50):
 
     cost = 0.0
     for i in xrange(iteration):
-        time_start = time.time()
+        time_iter_start = time.time()
 
         # scatter training data and labels
         sliced_inputs = np.asarray(np.split(inputs, comm.size))
@@ -376,14 +385,24 @@ def gradient_descent(inputs, labels, learningrate=0.8, iteration=50):
             # Sum of the 1st half inputs is 132986.76649618745
             # Sum of the 2nd half inputs is 129691.49366349436
             comm.Barrier()
+            if comm.rank == 0:
+                time_scatter_start = time.time()
             comm.Scatter(sliced_inputs, inputs_buf)
             #print('[{0}] inputs_buf.sum: {1}'.format(comm.rank, inputs_buf.sum()))
+            if comm.rank == 0:
+                time_scatter_end = time.time()
+                print('\tScatter inputs uses {} secs.'.format(time_scatter_end - time_scatter_start))
 
             # Sum of the 1st half labels is 10000
             # Sum of the 2nd half labels is 17500
             comm.Barrier()
+            if comm.rank == 0:
+                time_scatter_start = time.time()
             comm.Scatter(sliced_labels, labels_buf)
             #print('[{0}] labels_buf.sum: {1}'.format(comm.rank, labels_buf.sum()))
+            if comm.rank == 0:
+                time_scatter_end = time.time()
+                print('\tScatter labels uses {} secs.'.format(time_scatter_end - time_scatter_start))
 
             # Calculate distributed costs and gradients of this iteration
             # by cost function.
@@ -405,7 +424,12 @@ def gradient_descent(inputs, labels, learningrate=0.8, iteration=50):
 
             theta1_grad_buf = np.asarray([np.zeros_like(theta1_grad)] * comm.size)
             comm.Barrier()
+            if comm.rank == 0:
+                time_gather_start = time.time()
             comm.Gather(theta1_grad, theta1_grad_buf)
+            if comm.rank == 0:
+                time_gather_end = time.time()
+                print('\tGather theta1 uses {} secs.'.format(time_gather_end - time_gather_start))
             comm.Barrier()
             theta1_grad = functools.reduce(np.add, theta1_grad_buf) / comm.size
             #if comm.rank == 0:
@@ -413,7 +437,12 @@ def gradient_descent(inputs, labels, learningrate=0.8, iteration=50):
 
             theta2_grad_buf = np.asarray([np.zeros_like(theta2_grad)] * comm.size)
             comm.Barrier()
+            if comm.rank == 0:
+                time_gather_start = time.time()
             comm.Gather(theta2_grad, theta2_grad_buf)
+            if comm.rank == 0:
+                time_gather_end = time.time()
+                print('\tGather theta2 uses {} secs.'.format(time_gather_end - time_gather_start))
             comm.Barrier()
             theta2_grad = functools.reduce(np.add, theta2_grad_buf) / comm.size
             #if comm.rank == 0:
@@ -442,9 +471,11 @@ def gradient_descent(inputs, labels, learningrate=0.8, iteration=50):
            comm.Bcast([theta2, MPI.DOUBLE])
            comm.Barrier()
 
-        time_end = time.time()
+        time_iter_end = time.time()
         if comm.rank == 0:
-            print('Iteration {0} (learning rate {2}, iteration {3}), cost: {1}, time: {4}'.format(i+1, cost, learningrate, iteration, time_end - time_start))
+            print('Iteration {0} (learning rate {2}, iteration {3}), cost: {1}, time: {4}'.format(
+                i+1, cost, learningrate, iteration, time_iter_end - time_iter_start)
+            )
     return cost, (theta1, theta2)
 
 
@@ -532,4 +563,5 @@ if __name__ == '__main__':
         if predict == labels[i]:
             correct_prediction += 1
     precision = float(correct_prediction) / len(labels)
+    # Precision of pretrained model is 0.9756
     print('precision: {}'.format(precision))
