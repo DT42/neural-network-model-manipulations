@@ -40,6 +40,13 @@ Hidden_layer_size = 25
 Output_layer_size = 10
 
 
+def convert_memory_ordering_f2c(array):
+    if np.isfortran(array) is True:
+        return np.ascontiguousarray(array)
+    else:
+        return array
+
+
 def load_training_data(training_file='mnistdata.mat'):
     '''Load training data (mnistdata.mat) and return (inputs, labels).
 
@@ -50,7 +57,11 @@ def load_training_data(training_file='mnistdata.mat'):
     machine learning course (ex4data1.mat).
     '''
     training_data = sio.loadmat(training_file)
-    return (training_data['X'], training_data['y'])
+    inputs = training_data['X'].astype('f8')
+    inputs = convert_memory_ordering_f2c(inputs)
+    labels = training_data['y'].astype('d')
+    labels = convert_memory_ordering_f2c(labels)
+    return (inputs, labels)
 
 
 def load_weights(weight_file='mnistweights.mat'):
@@ -60,8 +71,9 @@ def load_weights(weight_file='mnistweights.mat'):
     machine learning course (ex4weights.mat).
     '''
     weights = sio.loadmat(weight_file)
-    #print(weights.keys())
-    return weights
+    theta1 = convert_memory_ordering_f2c(weights['Theta1'].astype('f8'))  # size: 25 entries, each has 401 numbers
+    theta2 = convert_memory_ordering_f2c(weights['Theta2'].astype('f8'))  # size: 10 entries, each has  26 numbers
+    return (theta1, theta2)
 
 
 def rand_init_weights(size_in, size_out):
@@ -188,14 +200,6 @@ if __name__ == '__main__':
     # (in order) in the output layer.
     inputs, labels = load_training_data()
 
-    # (optional) load pre-trained model for debugging neural network construction
-    weights = load_weights()
-    theta1 = weights['Theta1']  # size: 25 entries, each has 401 numbers
-    theta2 = weights['Theta2']  # size: 10 entries, each has  26 numbers
- 
-    cost, (theta1_grad, theta2_grad) = cost_function(theta1, theta2, Input_layer_size, Hidden_layer_size, Output_layer_size, inputs, labels, regular=0)
-    print('cost:', cost)
-
     # train the model from scratch and predict based on it
     # learning rate 0.10, iteration  60: 36% (cost: 3.217)
     # learning rate 1.75, iteration  50: 77%
@@ -207,7 +211,16 @@ if __name__ == '__main__':
     # learning rate 2.05, iteration  50: 79%
     # learning rate 2.20, iteration  50: 64%
     model = train(inputs, labels, learningrate=0.1, iteration=60)
+
+    # Load pretrained weights for debugging precision.
+    # The precision will be around 97% (0.9756).
+    #weights = load_weights()
+    #theta1 = weights[0]  # size: 25 entries, each has 401 numbers
+    #theta2 = weights[1]  # size: 10 entries, each has  26 numbers
     #model = (theta1, theta2)
+    #cost, (theta1_grad, theta2_grad) = cost_function(theta1, theta2, Input_layer_size, Hidden_layer_size, Output_layer_size, inputs, labels, regular=0)
+    #print('cost:', cost)
+
     outputs = predict(model, inputs)
 
     correct_prediction = 0
