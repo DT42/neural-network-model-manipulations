@@ -30,7 +30,6 @@
 
 import numpy as np
 import math
-import pandas as pd
 import scipy.io as sio
 
 
@@ -59,7 +58,7 @@ def load_training_data(training_file='mnistdata.mat'):
     training_data = sio.loadmat(training_file)
     inputs = training_data['X'].astype('f8')
     inputs = convert_memory_ordering_f2c(inputs)
-    labels = training_data['y'].astype('d')
+    labels = training_data['y']
     labels = convert_memory_ordering_f2c(labels)
     return (inputs, labels)
 
